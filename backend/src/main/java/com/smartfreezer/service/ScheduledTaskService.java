@@ -26,6 +26,7 @@ public class ScheduledTaskService {
     private final MqttConfig mqttConfig;
     private final MessageChannel mqttOutputChannel;
     private final DataBatchService dataBatchService;
+    private final SmartDefrostService smartDefrostService;
     private final Random random = new Random();
 
     private final Map<ZoneType, Double> currentTemps = new HashMap<>();
@@ -34,11 +35,13 @@ public class ScheduledTaskService {
     public ScheduledTaskService(FreezerConfig freezerConfig,
                                 MqttConfig mqttConfig,
                                 MessageChannel mqttOutputChannel,
-                                DataBatchService dataBatchService) {
+                                DataBatchService dataBatchService,
+                                SmartDefrostService smartDefrostService) {
         this.freezerConfig = freezerConfig;
         this.mqttConfig = mqttConfig;
         this.mqttOutputChannel = mqttOutputChannel;
         this.dataBatchService = dataBatchService;
+        this.smartDefrostService = smartDefrostService;
 
         currentTemps.put(ZoneType.UPPER, 4.0);
         currentTemps.put(ZoneType.MIDDLE, 3.0);
@@ -99,8 +102,10 @@ public class ScheduledTaskService {
         reading.setEvaporatorTemp(evaporatorTemp);
         dataBatchService.queueFrostReading(reading);
 
+        smartDefrostService.evaluateFrostReading(zone, frostThickness);
+
         publishFrostReport(zoneLower, frostThickness, evaporatorTemp);
-        log.debug("结霜数据已发布并入队 - 温区: {}, 厚度: {}, 蒸发温度: {}",
+        log.debug("结霜数据已发布并入队并评估 - 温区: {}, 厚度: {}, 蒸发温度: {}",
                 zone.getDisplayName(), frostThickness, evaporatorTemp);
     }
 

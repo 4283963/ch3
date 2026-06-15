@@ -82,3 +82,8 @@ freezer:
   linkage:
     fan-power-to-defrost-ratio: 0.3
     min-defrost-power: 20
+  defrost:
+    normal-threshold: 3.0
+    safety-limit: 6.0
+    delayed-hour: 23
+    delayed-minute: 0

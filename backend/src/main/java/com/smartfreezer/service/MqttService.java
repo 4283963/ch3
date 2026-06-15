@@ -23,17 +23,20 @@ public class MqttService {
     private final ObjectMapper objectMapper;
     private final DataBatchService dataBatchService;
     private final TemperatureLinkageService temperatureLinkageService;
+    private final SmartDefrostService smartDefrostService;
 
     public MqttService(MqttConfig mqttConfig,
                        MessageChannel mqttOutputChannel,
                        ObjectMapper objectMapper,
                        DataBatchService dataBatchService,
-                       TemperatureLinkageService temperatureLinkageService) {
+                       TemperatureLinkageService temperatureLinkageService,
+                       SmartDefrostService smartDefrostService) {
         this.mqttConfig = mqttConfig;
         this.mqttOutputChannel = mqttOutputChannel;
         this.objectMapper = objectMapper;
         this.dataBatchService = dataBatchService;
         this.temperatureLinkageService = temperatureLinkageService;
+        this.smartDefrostService = smartDefrostService;
     }
 
     @ServiceActivator(inputChannel = "mqttInputChannel")
@@ -86,7 +89,9 @@ public class MqttService {
 
         dataBatchService.queueFrostReading(reading);
 
-        log.debug("结霜数据已入队 - 温区: {}, 结霜厚度: {}",
+        smartDefrostService.evaluateFrostReading(zoneType, reading.getFrostThickness());
+
+        log.debug("结霜数据已入队并评估 - 温区: {}, 结霜厚度: {}",
                 zoneType.getDisplayName(), reading.getFrostThickness());
     }
 

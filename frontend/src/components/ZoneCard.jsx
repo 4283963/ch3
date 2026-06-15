@@ -22,7 +22,9 @@ const zoneConfig = {
   },
 };
 
-const ZoneCard = ({ zone, data, onAdjust }) => {
+const ZoneCard = ({ zone, data, onAdjust, defrostConfig }) => {
+  const normalThreshold = defrostConfig?.normalThreshold ?? 3.0;
+  const safetyLimit = defrostConfig?.safetyLimit ?? 6.0;
   const config = zoneConfig[zone] || zoneConfig.upper;
 
   const getStatus = () => {
@@ -41,10 +43,28 @@ const ZoneCard = ({ zone, data, onAdjust }) => {
     loading: { text: '加载中', className: 'status-warning' },
   };
 
-  const getFrostStatus = (thickness) => {
-    if (thickness < 2) return 'success';
-    if (thickness < 4) return 'active';
+  const getFrostStatus = (thickness, normalThreshold = 3.0, safetyLimit = 6.0) => {
+    if (thickness < normalThreshold) return 'success';
+    if (thickness < safetyLimit) return 'active';
     return 'exception';
+  };
+
+  const getFrostWarningTag = (thickness, normalThreshold = 3.0, safetyLimit = 6.0) => {
+    if (thickness >= safetyLimit) {
+      return (
+        <Tag color="red" style={{ marginTop: 8, fontWeight: 'bold', animation: 'blink 1s infinite' }}>
+          ⚠️ 超安全极限 - 需立即手动清霜
+        </Tag>
+      );
+    }
+    if (thickness >= normalThreshold) {
+      return (
+        <Tag color="orange" style={{ marginTop: 8 }}>
+          ⏰ 已达阈值 - 打烊后自动除霜
+        </Tag>
+      );
+    }
+    return null;
   };
 
   if (!data) {
@@ -100,8 +120,8 @@ const ZoneCard = ({ zone, data, onAdjust }) => {
             蒸发器结霜厚度: {data.frostThickness.toFixed(1)} mm
           </div>
           <Progress
-            percent={Math.min(100, data.frostThickness * 20)}
-            status={getFrostStatus(data.frostThickness)}
+            percent={Math.min(100, (data.frostThickness / safetyLimit) * 100)}
+            status={getFrostStatus(data.frostThickness, normalThreshold, safetyLimit)}
             showInfo={false}
             strokeColor={{
               '0%': '#52c41a',
@@ -109,6 +129,10 @@ const ZoneCard = ({ zone, data, onAdjust }) => {
               '100%': '#f5222d',
             }}
           />
+          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4 }}>
+            阈值: {normalThreshold}mm / 安全极限: {safetyLimit}mm
+          </div>
+          {getFrostWarningTag(data.frostThickness, normalThreshold, safetyLimit)}
         </div>
       )}
 

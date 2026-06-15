@@ -8,13 +8,15 @@ import {
 import dayjs from 'dayjs';
 import ZoneCard from './components/ZoneCard';
 import LinkagePanel from './components/LinkagePanel';
+import BusinessStatusPanel from './components/BusinessStatusPanel';
+import DefrostAlertPanel from './components/DefrostAlertPanel';
 import TemperatureAdjustModal from './components/TemperatureAdjustModal';
 import {
   TemperatureControlLogTable,
   LinkageLogTable,
 } from './components/LogTable';
 import TemperatureChart from './components/TemperatureChart';
-import { temperatureApi, linkageApi, logsApi } from './services/api';
+import { temperatureApi, linkageApi, logsApi, defrostApi } from './services/api';
 
 const { Header, Content } = Layout;
 const { TabPane } = Tabs;
@@ -33,16 +35,25 @@ function App() {
     middle: [],
     lower: [],
   });
+  const [defrostStatus, setDefrostStatus] = useState({
+    businessOpen: true,
+    normalThreshold: 3.0,
+    safetyLimit: 6.0,
+    delayedTime: '23:00',
+    activeAlerts: [],
+  });
 
   const [loading, setLoading] = useState({
     zones: true,
     linkage: true,
+    defrost: true,
     logs: false,
   });
   const [adjustModalVisible, setAdjustModalVisible] = useState(false);
   const [selectedZone, setSelectedZone] = useState(null);
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [fanChangeLoading, setFanChangeLoading] = useState(false);
+  const [businessToggleLoading, setBusinessToggleLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(dayjs().format('YYYY-MM-DD HH:mm:ss'));
   const [error, setError] = useState(null);
 
@@ -53,9 +64,29 @@ function App() {
     return () => clearInterval(timer);
   }, []);
 
+  const fetchDefrostStatus = useCallback(async () => {
+    try {
+      const response = await defrostApi.getStatus();
+      if (response.data?.success) {
+        setDefrostStatus(response.data.data);
+      }
+      const alertsResp = await defrostApi.getActiveAlerts();
+      if (alertsResp.data?.success) {
+        setDefrostStatus((prev) => ({
+          ...prev,
+          activeAlerts: alertsResp.data.data || [],
+        }));
+      }
+    } catch (err) {
+      console.error('获取除霜状态失败:', err);
+    } finally {
+      setLoading((prev) => ({ ...prev, defrost: false }));
+    }
+  }, []);
+
   const fetchAllData = useCallback(async () => {
     try {
-      setLoading((prev) => ({ ...prev, zones: true });
+      setLoading((prev) => ({ ...prev, zones: true }));
       const zonesResponse = await temperatureApi.getAllZones();
       if (zonesResponse.data?.success) {
         const zoneList = zonesResponse.data.data;
@@ -82,17 +113,19 @@ function App() {
         }
       });
       setHistoryData(historyMap);
+
+      await fetchDefrostStatus();
     } catch (err) {
       console.error('获取数据失败:', err);
       setError('无法连接到后端服务，请检查后端是否启动');
     } finally {
       setLoading((prev) => ({ ...prev, zones: false, linkage: false }));
     }
-  }, []);
+  }, [fetchDefrostStatus]);
 
   const fetchLogs = useCallback(async () => {
     try {
-      setLoading((prev) => ({ ...prev, logs: true });
+      setLoading((prev) => ({ ...prev, logs: true }));
       const [controlResp, linkageResp] = await Promise.all([
         logsApi.getTemperatureControlLogs(),
         logsApi.getLinkageLogs(),
@@ -170,6 +203,63 @@ function App() {
     }
   };
 
+  const handleBusinessToggle = async (open) => {
+    setBusinessToggleLoading(true);
+    try {
+      const response = open
+        ? await defrostApi.setBusinessOpen('调度员')
+        : await defrostApi.setBusinessClosed('调度员');
+      if (response.data?.success) {
+        message.success(response.data.message);
+        fetchDefrostStatus();
+        fetchAllData();
+      } else {
+        message.error(response.data?.message || '状态切换失败');
+      }
+    } catch (err) {
+      message.error('状态切换失败');
+    } finally {
+      setBusinessToggleLoading(false);
+    }
+  };
+
+  const handleExecuteDelayed = async () => {
+    try {
+      const response = await defrostApi.executeDelayed();
+      if (response.data?.success) {
+        message.success('已触发延时除霜');
+        fetchDefrostStatus();
+      }
+    } catch (err) {
+      message.error('触发失败');
+    }
+  };
+
+  const handleAcknowledgeAlert = async (id) => {
+    try {
+      const response = await defrostApi.acknowledgeAlert(id, '调度员');
+      if (response.data?.success) {
+        message.success('告警已确认');
+        fetchDefrostStatus();
+      }
+    } catch (err) {
+      message.error('操作失败');
+    }
+  };
+
+  const handleResolveAlert = async (id) => {
+    try {
+      const response = await defrostApi.resolveAlert(id, '调度员');
+      if (response.data?.success) {
+        message.success('已标记为已清霜');
+        fetchDefrostStatus();
+        fetchAllData();
+      }
+    } catch (err) {
+      message.error('操作失败');
+    }
+  };
+
   const refreshData = () => {
     setError(null);
     fetchAllData();
@@ -212,6 +302,22 @@ function App() {
           />
         )}
 
+        <BusinessStatusPanel
+          isOpen={defrostStatus.businessOpen}
+          delayedTime={defrostStatus.delayedTime}
+          loading={businessToggleLoading}
+          onToggleOpen={handleBusinessToggle}
+          onExecuteDelayed={handleExecuteDelayed}
+        />
+
+        <DefrostAlertPanel
+          alerts={defrostStatus.activeAlerts}
+          normalThreshold={defrostStatus.normalThreshold}
+          safetyLimit={defrostStatus.safetyLimit}
+          onAcknowledge={handleAcknowledgeAlert}
+          onResolve={handleResolveAlert}
+        />
+
         <LinkagePanel
           linkageStatus={linkageStatus}
           onFanChange={handleFanChange}
@@ -225,6 +331,7 @@ function App() {
                 zone="upper"
                 data={zones.upper}
                 onAdjust={handleAdjustClick}
+                defrostConfig={defrostStatus}
               />
             </Col>
             <Col xs={24} sm={24} md={8}>
@@ -232,6 +339,7 @@ function App() {
                 zone="middle"
                 data={zones.middle}
                 onAdjust={handleAdjustClick}
+                defrostConfig={defrostStatus}
               />
             </Col>
             <Col xs={24} sm={24} md={8}>
@@ -239,6 +347,7 @@ function App() {
                 zone="lower"
                 data={zones.lower}
                 onAdjust={handleAdjustClick}
+                defrostConfig={defrostStatus}
               />
             </Col>
           </Row>

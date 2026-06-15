@@ -38,4 +38,19 @@ export const logsApi = {
   getLinkageLogs: () => api.get('/logs/linkage'),
 };
 
+export const defrostApi = {
+  getStatus: () => api.get('/defrost/status'),
+  getBusinessStatus: () => api.get('/defrost/business'),
+  setBusinessOpen: (operator) =>
+    api.post('/defrost/business/open', { operator }),
+  setBusinessClosed: (operator) =>
+    api.post('/defrost/business/close', { operator }),
+  getActiveAlerts: () => api.get('/defrost/alerts'),
+  acknowledgeAlert: (id, operator) =>
+    api.post(`/defrost/alerts/${id}/acknowledge`, { operator }),
+  resolveAlert: (id, operator) =>
+    api.post(`/defrost/alerts/${id}/resolve`, { operator }),
+  executeDelayed: () => api.post('/defrost/execute-delayed'),
+};
+
 export default api;
