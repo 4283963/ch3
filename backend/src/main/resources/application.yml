@@ -1,0 +1,64 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: smart-freezer-system
+  datasource:
+    url: jdbc:mysql://localhost:3306/smart_freezer?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+  mvc:
+    cors:
+      mappings:
+        '/**':
+          allowed-origins: '*'
+          allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+          allowed-headers: '*'
+
+mqtt:
+  broker: tcp://localhost:1883
+  client-id: smart-freezer-backend
+  username: admin
+  password: admin
+  topics:
+    temperature-report: freezer/+/temperature/report
+    frost-report: freezer/+/frost/report
+    fan-status: freezer/middle/fan/status
+    temperature-set: freezer/{zone}/temperature/set
+    defrost-power-set: freezer/upper/defrost/set
+
+scheduling:
+  enabled: true
+  temperature-read-interval: 10000
+  frost-read-interval: 30000
+
+freezer:
+  zones:
+    upper:
+      name: 上层酸奶区
+      min-temp: 2.0
+      max-temp: 8.0
+      default-target-temp: 4.0
+    middle:
+      name: 中层熟食区
+      min-temp: 0.0
+      max-temp: 6.0
+      default-target-temp: 3.0
+    lower:
+      name: 下层鲜肉区
+      min-temp: -2.0
+      max-temp: 4.0
+      default-target-temp: 0.0
+  linkage:
+    fan-power-to-defrost-ratio: 0.3
+    min-defrost-power: 20
