@@ -3,7 +3,6 @@ package com.smartfreezer.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartfreezer.config.MqttConfig;
 import com.smartfreezer.entity.*;
-import com.smartfreezer.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.integration.annotation.ServiceActivator;
@@ -22,24 +21,18 @@ public class MqttService {
     private final MqttConfig mqttConfig;
     private final MessageChannel mqttOutputChannel;
     private final ObjectMapper objectMapper;
-    private final TemperatureReadingRepository temperatureReadingRepository;
-    private final FrostReadingRepository frostReadingRepository;
-    private final DeviceStatusRepository deviceStatusRepository;
+    private final DataBatchService dataBatchService;
     private final TemperatureLinkageService temperatureLinkageService;
 
     public MqttService(MqttConfig mqttConfig,
                        MessageChannel mqttOutputChannel,
                        ObjectMapper objectMapper,
-                       TemperatureReadingRepository temperatureReadingRepository,
-                       FrostReadingRepository frostReadingRepository,
-                       DeviceStatusRepository deviceStatusRepository,
+                       DataBatchService dataBatchService,
                        TemperatureLinkageService temperatureLinkageService) {
         this.mqttConfig = mqttConfig;
         this.mqttOutputChannel = mqttOutputChannel;
         this.objectMapper = objectMapper;
-        this.temperatureReadingRepository = temperatureReadingRepository;
-        this.frostReadingRepository = frostReadingRepository;
-        this.deviceStatusRepository = deviceStatusRepository;
+        this.dataBatchService = dataBatchService;
         this.temperatureLinkageService = temperatureLinkageService;
     }
 
@@ -47,7 +40,6 @@ public class MqttService {
     public void handleIncomingMessage(Message<String> message) {
         String topic = message.getHeaders().get(MqttHeaders.RECEIVED_TOPIC, String.class);
         String payload = message.getPayload();
-        log.info("收到MQTT消息 - Topic: {}, Payload: {}", topic, payload);
 
         try {
             if (topic != null) {
@@ -60,7 +52,7 @@ public class MqttService {
                 }
             }
         } catch (Exception e) {
-            log.error("处理MQTT消息失败", e);
+            log.error("处理MQTT消息失败 - Topic: {}", topic, e);
         }
     }
 
@@ -73,9 +65,10 @@ public class MqttService {
         reading.setZoneType(zoneType);
         reading.setCurrentTemp(((Number) data.get("currentTemp")).doubleValue());
         reading.setTargetTemp(((Number) data.get("targetTemp")).doubleValue());
-        temperatureReadingRepository.save(reading);
 
-        log.info("温度数据已保存 - 温区: {}, 当前温度: {}, 目标温度: {}",
+        dataBatchService.queueTemperatureReading(reading);
+
+        log.debug("温度数据已入队 - 温区: {}, 当前温度: {}, 目标温度: {}",
                 zoneType.getDisplayName(), reading.getCurrentTemp(), reading.getTargetTemp());
     }
 
@@ -90,9 +83,10 @@ public class MqttService {
         if (data.containsKey("evaporatorTemp")) {
             reading.setEvaporatorTemp(((Number) data.get("evaporatorTemp")).doubleValue());
         }
-        frostReadingRepository.save(reading);
 
-        log.info("结霜数据已保存 - 温区: {}, 结霜厚度: {}",
+        dataBatchService.queueFrostReading(reading);
+
+        log.debug("结霜数据已入队 - 温区: {}, 结霜厚度: {}",
                 zoneType.getDisplayName(), reading.getFrostThickness());
     }
 
@@ -109,9 +103,10 @@ public class MqttService {
         if (data.containsKey("compressorStatus")) {
             status.setCompressorStatus((Boolean) data.get("compressorStatus"));
         }
-        deviceStatusRepository.save(status);
 
-        log.info("风机状态已保存 - 风机转速: {}", fanSpeed);
+        dataBatchService.queueDeviceStatus(status);
+
+        log.debug("风机状态已入队 - 风机转速: {}", fanSpeed);
 
         temperatureLinkageService.handleFanSpeedChange(fanSpeed);
     }

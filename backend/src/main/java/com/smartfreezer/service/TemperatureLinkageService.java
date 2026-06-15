@@ -6,6 +6,7 @@ import com.smartfreezer.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -15,21 +16,21 @@ public class TemperatureLinkageService {
     private static final Logger log = LoggerFactory.getLogger(TemperatureLinkageService.class);
 
     private final FreezerConfig freezerConfig;
-    private final LinkageLogRepository linkageLogRepository;
     private final DeviceStatusRepository deviceStatusRepository;
     private final MqttService mqttService;
+    private final DataBatchService dataBatchService;
 
     private final AtomicInteger currentFanSpeed = new AtomicInteger(50);
     private final AtomicInteger currentDefrostPower = new AtomicInteger(80);
 
     public TemperatureLinkageService(FreezerConfig freezerConfig,
-                                     LinkageLogRepository linkageLogRepository,
                                      DeviceStatusRepository deviceStatusRepository,
-                                     MqttService mqttService) {
+                                     MqttService mqttService,
+                                     DataBatchService dataBatchService) {
         this.freezerConfig = freezerConfig;
-        this.linkageLogRepository = linkageLogRepository;
         this.deviceStatusRepository = deviceStatusRepository;
         this.mqttService = mqttService;
+        this.dataBatchService = dataBatchService;
     }
 
     public void handleFanSpeedChange(int newFanSpeed) {
@@ -50,7 +51,8 @@ public class TemperatureLinkageService {
         currentFanSpeed.set(newFanSpeed);
     }
 
-    private void adjustDefrostPowerForFanIncrease(int oldFanSpeed, int newFanSpeed) {
+    @Transactional
+    protected void adjustDefrostPowerForFanIncrease(int oldFanSpeed, int newFanSpeed) {
         double ratio = freezerConfig.getLinkage().getFanPowerToDefrostRatio();
         int minDefrostPower = freezerConfig.getLinkage().getMinDefrostPower();
 
@@ -80,7 +82,7 @@ public class TemperatureLinkageService {
             linkageLog.setOldValue((double) oldPower);
             linkageLog.setNewValue((double) newPower);
             linkageLog.setLinkageRatio(ratio);
-            linkageLogRepository.save(linkageLog);
+            dataBatchService.saveLinkageLogAsync(linkageLog);
 
             log.info("联动逻辑执行完成: 风机转速↑ -> 除霜功率↓");
         } else {
@@ -88,7 +90,8 @@ public class TemperatureLinkageService {
         }
     }
 
-    private void adjustDefrostPowerForFanDecrease(int oldFanSpeed, int newFanSpeed) {
+    @Transactional
+    protected void adjustDefrostPowerForFanDecrease(int oldFanSpeed, int newFanSpeed) {
         double ratio = freezerConfig.getLinkage().getFanPowerToDefrostRatio();
 
         int fanSpeedDelta = oldFanSpeed - newFanSpeed;
@@ -114,7 +117,7 @@ public class TemperatureLinkageService {
             linkageLog.setOldValue((double) oldPower);
             linkageLog.setNewValue((double) newPower);
             linkageLog.setLinkageRatio(ratio);
-            linkageLogRepository.save(linkageLog);
+            dataBatchService.saveLinkageLogAsync(linkageLog);
 
             log.info("联动逻辑执行完成: 风机转速↓ -> 除霜功率↑");
         }
@@ -124,13 +127,13 @@ public class TemperatureLinkageService {
         DeviceStatus upperStatus = new DeviceStatus();
         upperStatus.setZoneType(ZoneType.UPPER);
         upperStatus.setDefrostPower(defrostPower);
-        deviceStatusRepository.save(upperStatus);
+        dataBatchService.queueDeviceStatus(upperStatus);
 
         DeviceStatus middleStatus = new DeviceStatus();
         middleStatus.setZoneType(ZoneType.MIDDLE);
         middleStatus.setFanSpeed(fanSpeed);
         middleStatus.setDefrostPower(defrostPower);
-        deviceStatusRepository.save(middleStatus);
+        dataBatchService.queueDeviceStatus(middleStatus);
     }
 
     public int getCurrentFanSpeed() {
@@ -147,12 +150,14 @@ public class TemperatureLinkageService {
         return currentDefrostPower.get();
     }
 
+    @Transactional(readOnly = true)
     public Integer getDefrostPowerForZone(ZoneType zoneType) {
         Optional<DeviceStatus> status = deviceStatusRepository
                 .findTopByZoneTypeOrderByCreatedAtDesc(zoneType);
         return status.map(DeviceStatus::getDefrostPower).orElse(null);
     }
 
+    @Transactional(readOnly = true)
     public Integer getFanSpeedForZone(ZoneType zoneType) {
         Optional<DeviceStatus> status = deviceStatusRepository
                 .findTopByZoneTypeOrderByCreatedAtDesc(zoneType);

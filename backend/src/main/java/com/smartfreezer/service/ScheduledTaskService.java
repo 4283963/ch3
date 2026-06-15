@@ -3,7 +3,6 @@ package com.smartfreezer.service;
 import com.smartfreezer.config.FreezerConfig;
 import com.smartfreezer.config.MqttConfig;
 import com.smartfreezer.entity.*;
-import com.smartfreezer.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -12,6 +11,7 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -25,9 +25,7 @@ public class ScheduledTaskService {
     private final FreezerConfig freezerConfig;
     private final MqttConfig mqttConfig;
     private final MessageChannel mqttOutputChannel;
-    private final TemperatureReadingRepository temperatureReadingRepository;
-    private final FrostReadingRepository frostReadingRepository;
-    private final DeviceStatusRepository deviceStatusRepository;
+    private final DataBatchService dataBatchService;
     private final Random random = new Random();
 
     private final Map<ZoneType, Double> currentTemps = new HashMap<>();
@@ -36,15 +34,11 @@ public class ScheduledTaskService {
     public ScheduledTaskService(FreezerConfig freezerConfig,
                                 MqttConfig mqttConfig,
                                 MessageChannel mqttOutputChannel,
-                                TemperatureReadingRepository temperatureReadingRepository,
-                                FrostReadingRepository frostReadingRepository,
-                                DeviceStatusRepository deviceStatusRepository) {
+                                DataBatchService dataBatchService) {
         this.freezerConfig = freezerConfig;
         this.mqttConfig = mqttConfig;
         this.mqttOutputChannel = mqttOutputChannel;
-        this.temperatureReadingRepository = temperatureReadingRepository;
-        this.frostReadingRepository = frostReadingRepository;
-        this.deviceStatusRepository = deviceStatusRepository;
+        this.dataBatchService = dataBatchService;
 
         currentTemps.put(ZoneType.UPPER, 4.0);
         currentTemps.put(ZoneType.MIDDLE, 3.0);
@@ -86,10 +80,10 @@ public class ScheduledTaskService {
         reading.setZoneType(zone);
         reading.setCurrentTemp(currentTemp);
         reading.setTargetTemp(baseTemp);
-        temperatureReadingRepository.save(reading);
+        dataBatchService.queueTemperatureReading(reading);
 
         publishTemperatureReport(zoneLower, currentTemp, baseTemp);
-        log.debug("温度数据已发布 - 温区: {}, 当前: {}, 目标: {}",
+        log.debug("温度数据已发布并入队 - 温区: {}, 当前: {}, 目标: {}",
                 zone.getDisplayName(), currentTemp, baseTemp);
     }
 
@@ -103,10 +97,10 @@ public class ScheduledTaskService {
         reading.setZoneType(zone);
         reading.setFrostThickness(frostThickness);
         reading.setEvaporatorTemp(evaporatorTemp);
-        frostReadingRepository.save(reading);
+        dataBatchService.queueFrostReading(reading);
 
         publishFrostReport(zoneLower, frostThickness, evaporatorTemp);
-        log.debug("结霜数据已发布 - 温区: {}, 厚度: {}, 蒸发温度: {}",
+        log.debug("结霜数据已发布并入队 - 温区: {}, 厚度: {}, 蒸发温度: {}",
                 zone.getDisplayName(), frostThickness, evaporatorTemp);
     }
 
@@ -136,6 +130,7 @@ public class ScheduledTaskService {
         }
     }
 
+    @Transactional
     public void publishFanStatus(int fanSpeed, int defrostPower) {
         try {
             String topic = "freezer/middle/fan/status";
@@ -150,7 +145,7 @@ public class ScheduledTaskService {
             status.setFanSpeed(fanSpeed);
             status.setDefrostPower(defrostPower);
             status.setCompressorStatus(true);
-            deviceStatusRepository.save(status);
+            dataBatchService.queueDeviceStatus(status);
         } catch (Exception e) {
             log.error("发布风机状态失败", e);
         }

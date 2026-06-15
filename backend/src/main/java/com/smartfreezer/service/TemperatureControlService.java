@@ -23,27 +23,27 @@ public class TemperatureControlService {
     private final TemperatureReadingRepository temperatureReadingRepository;
     private final FrostReadingRepository frostReadingRepository;
     private final TemperatureControlLogRepository controlLogRepository;
-    private final DeviceStatusRepository deviceStatusRepository;
     private final MqttService mqttService;
     private final ScheduledTaskService scheduledTaskService;
     private final TemperatureLinkageService temperatureLinkageService;
+    private final DataBatchService dataBatchService;
 
     public TemperatureControlService(FreezerConfig freezerConfig,
                                      TemperatureReadingRepository temperatureReadingRepository,
                                      FrostReadingRepository frostReadingRepository,
                                      TemperatureControlLogRepository controlLogRepository,
-                                     DeviceStatusRepository deviceStatusRepository,
                                      MqttService mqttService,
                                      ScheduledTaskService scheduledTaskService,
-                                     TemperatureLinkageService temperatureLinkageService) {
+                                     TemperatureLinkageService temperatureLinkageService,
+                                     DataBatchService dataBatchService) {
         this.freezerConfig = freezerConfig;
         this.temperatureReadingRepository = temperatureReadingRepository;
         this.frostReadingRepository = frostReadingRepository;
         this.controlLogRepository = controlLogRepository;
-        this.deviceStatusRepository = deviceStatusRepository;
         this.mqttService = mqttService;
         this.scheduledTaskService = scheduledTaskService;
         this.temperatureLinkageService = temperatureLinkageService;
+        this.dataBatchService = dataBatchService;
     }
 
     @Transactional
@@ -90,9 +90,9 @@ public class TemperatureControlService {
         controlLog.setOperator(request.getOperator() != null ? request.getOperator() : "system");
         controlLog.setReason(request.getReason());
         controlLog.setMqttDelivered(mqttDelivered);
-        controlLogRepository.save(controlLog);
+        dataBatchService.saveTemperatureControlLogAsync(controlLog);
 
-        log.info("温度调整日志已记录, MQTT下发状态: {}", mqttDelivered);
+        log.info("温度调整日志已异步入队, MQTT下发状态: {}", mqttDelivered);
 
         return Map.of(
                 "success", true,
@@ -101,11 +101,11 @@ public class TemperatureControlService {
                 "zoneName", zoneConfig.getName(),
                 "oldTarget", oldTarget,
                 "newTarget", newTarget,
-                "mqttDelivered", mqttDelivered,
-                "logId", controlLog.getId()
+                "mqttDelivered", mqttDelivered
         );
     }
 
+    @Transactional(readOnly = true)
     public List<ZoneStatusResponse> getAllZoneStatus() {
         List<ZoneStatusResponse> statusList = new ArrayList<>();
 
@@ -116,6 +116,7 @@ public class TemperatureControlService {
         return statusList;
     }
 
+    @Transactional(readOnly = true)
     public ZoneStatusResponse getZoneStatus(ZoneType zoneType) {
         String zoneLower = zoneType.name().toLowerCase();
         FreezerConfig.ZoneConfig zoneConfig = freezerConfig.getZones().get(zoneLower);
@@ -153,6 +154,7 @@ public class TemperatureControlService {
         return response;
     }
 
+    @Transactional(readOnly = true)
     public List<TemperatureReading> getTemperatureHistory(String zone, int hours) {
         ZoneType zoneType = ZoneType.valueOf(zone.toUpperCase());
         LocalDateTime startTime = LocalDateTime.now().minusHours(hours);
@@ -160,6 +162,7 @@ public class TemperatureControlService {
                 zoneType, startTime);
     }
 
+    @Transactional(readOnly = true)
     public List<TemperatureControlLog> getControlLogs(String zone) {
         if (zone != null && !zone.isEmpty()) {
             ZoneType zoneType = ZoneType.valueOf(zone.toUpperCase());
